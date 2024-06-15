@@ -1,5 +1,6 @@
-use std::{fmt::Display, str::FromStr};
+use std::{fmt::Display, io, str::FromStr};
 
+use cmd_lib::run_fun;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -23,6 +24,46 @@ impl Display for ModemInfo {
     }
 }
 
+impl ModemInfo {
+    pub fn new(modem_id: impl Display) -> io::Result<ModemInfo> {
+        run_fun!(
+            mmcli -m $modem_id -J
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+        .parse()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+    }
+
+    pub fn net_device_name(&self) -> String {
+        let port_list = PortList::from_vec_string(self.modem.generic.ports.as_ref());
+        port_list.get_net_name()
+    }
+
+    pub fn disconnect(&self) -> io::Result<()> {
+        let dbus_path = self.modem.dbus_path.clone();
+        run_fun!(
+            mmcli -m $dbus_path --simple-disconnect
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        .map(|_| ())
+    }
+
+    pub fn connect(&self, apn: &str) -> io::Result<()> {
+        let dbus_path = self.modem.dbus_path.clone();
+        run_fun!(
+            mmcli -m $dbus_path --simple-connect="apn=$apn"
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+        .map(|_| ())
+    }
+
+    pub fn refresh(&mut self) -> io::Result<()> {
+        let dbus_path = self.modem.dbus_path.clone();
+        self.modem = Self::new(dbus_path)?.modem;
+        Ok(())
+    }
+}
+
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Modem {
@@ -32,6 +73,14 @@ pub struct Modem {
     #[serde(rename = "dbus-path")]
     pub dbus_path: String,
     pub generic: Generic,
+}
+
+impl FromStr for Modem {
+    type Err = serde_json::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        serde_json::from_str(s)
+    }
 }
 
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -176,4 +225,74 @@ pub struct Generic {
 pub struct SignalQuality {
     pub recent: String,
     pub value: String,
+}
+
+pub struct PortList {
+    pub ports: Vec<Port>,
+}
+
+impl PortList {
+    pub fn from_vec_string(ports: &[String]) -> PortList {
+        let ports = ports
+            .iter()
+            .map(|port| Port::from_str(port).unwrap())
+            .collect();
+        PortList { ports }
+    }
+
+    pub fn get_net_name(&self) -> String {
+        self.ports
+            .iter()
+            .find(|port| port.device_type == DeviceType::Net)
+            .map(|port| port.name.clone())
+            .unwrap_or_else(|| "".to_string())
+    }
+
+    pub fn get_dev_name(&self) -> String {
+        self.ports
+            .iter()
+            .find(|port| port.device_type == DeviceType::Mbim)
+            .map(|port| port.name.clone())
+            .unwrap_or_else(|| "".to_string())
+    }
+}
+
+pub struct Port {
+    pub name: String,
+    pub device_type: DeviceType,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum DeviceType {
+    Net,
+    Mbim,
+    Unknown,
+}
+
+impl FromStr for DeviceType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "(net)" => Ok(DeviceType::Net),
+            "(mbim)" => Ok(DeviceType::Mbim),
+            _ => Ok(DeviceType::Unknown),
+        }
+    }
+}
+
+impl FromStr for Port {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let mut iter = s.split_whitespace();
+        let (name, device_type) = (iter.next(), iter.next());
+        match (name, device_type) {
+            (Some(name), Some(device_type)) => Ok(Port {
+                name: name.to_string(),
+                device_type: DeviceType::from_str(device_type)?,
+            }),
+            _ => Err("Invalid port string".to_string()),
+        }
+    }
 }

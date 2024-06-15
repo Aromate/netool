@@ -1,0 +1,10 @@
+[package]
+name = "binary"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+clap = { version = "4.5.7", features = ["derive"] }
+prettytable-rs = "0.10.0"
+struch = { version = "0.1.0", path = "../struch" }
+utils = { version = "0.1.0", path = "../utils" }

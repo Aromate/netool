@@ -1,5 +1,6 @@
-use std::{fmt::Display, str::FromStr};
+use std::{fmt::Display, io, str::FromStr};
 
+use cmd_lib::run_fun;
 use serde_derive::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -20,6 +21,23 @@ impl FromStr for BearerInfo {
 impl Display for BearerInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", serde_json::to_string(self).unwrap())
+    }
+}
+
+impl BearerInfo {
+    pub fn new(bearer_id: impl Display) -> io::Result<BearerInfo> {
+        run_fun!(
+            mmcli -b $bearer_id -J
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+        .parse()
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+    }
+
+    pub fn refresh(&mut self) -> io::Result<()> {
+        let dbus_path = self.bearer.dbus_path.clone();
+        self.bearer = Self::new(dbus_path)?.bearer;
+        Ok(())
     }
 }
 
