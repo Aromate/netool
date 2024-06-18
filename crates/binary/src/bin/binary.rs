@@ -113,7 +113,7 @@ fn main() -> io::Result<()> {
                     "Can't connect and disconnect at the same time",
                 ));
             }
-            if utils::system::getuid() != 0 || utils::system::geteuid() != 0 {
+            if utils::system::getuid() != 0 && utils::system::geteuid() != 0 {
                 return Err(io::Error::new(
                     io::ErrorKind::PermissionDenied,
                     "Permission denied",
@@ -147,6 +147,11 @@ fn main() -> io::Result<()> {
                 device.add_ip(&ip_v4)?;
                 device.set_up()?;
                 device.set_ip_route()?;
+                let mut resolv=utils::resolv::Resolv::new()?;
+                for dns in bearer_info.bearer.ipv4_config.dns {
+                    resolv.add_resolv(dns);
+                }
+                resolv.update_resolv()?;
                 println!("sucess");
             }
             if lte.disconnect {
